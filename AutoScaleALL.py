@@ -33,6 +33,7 @@ import threading
 import time
 import sys
 import argparse
+import re
 import os
 import Regions
 import OCIFunctions
@@ -165,6 +166,36 @@ def isDeleted(state):
 
     return deleted
 
+
+###############################################
+# validate_schedule
+###############################################
+def validate_schedule(resource, schedule):
+    global ErrorsFound
+    global errors
+    try:
+        if re.search("^(\d+|\*),((\d+|\*),){22}(\d+|\*)$", schedule) is None:
+            ErrorsFound = True
+            error = [' - Error with schedule of {} - {}'.format(resource.display_name, schedule)]
+            if len(schedule.split(',')) != 24:
+                error.append("Incorrect number of hours: {}".format(len(schedule.split(','))))
+            if re.search("\d+|\*", schedule[-1]) is None:
+                error.append("Schedule ends in {} ".format(schedule[-1]))
+            if re.search("\d+|\*", schedule[0]) is None:
+                error.append("Schedule begins with {} ".format(schedule[0]))
+            if ' ' in schedule:
+                error.append("Whitespace detected at index {}".format(schedule.find(' ')))
+            errors.append(', '.join(error))
+            MakeLog(', '.join(error))
+            return ""
+    except Exception:
+        ErrorsFound = True
+        errors.append(" - Error with schedule for {}".format(resource.display_name))
+        MakeLog(" - Error with schedule of {}".format(resource.display_name))
+        MakeLog(sys.exc_info()[0])
+        return ""
+    
+    return schedule
 
 ###############################################
 # AutonomousThread
@@ -416,9 +447,6 @@ def autoscale_region(region):
     sdetails = oci.resource_search.models.StructuredSearchDetails()
     sdetails.query = query
 
-
-    NoError = True
-
     try:
         result = oci.pagination.list_call_get_all_results(search.search_resources,
                                                           sdetails,
@@ -595,16 +623,12 @@ def autoscale_region(region):
                             ActiveSchedule = "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
             
             #################################################################
-            # Check if the active schedule contains exactly 24 numbers for each hour of the day
+            # Check the active schedule for correct hours and formatting
             #################################################################
+            ActiveSchedule = validate_schedule(resource, ActiveSchedule)
             if ActiveSchedule != "":
                 try:
-                    schedulehours = ActiveSchedule.split("#")[0].split(",")
-                    if len(schedulehours) != 24:
-                        ErrorsFound = True
-                        errors.append(" - Error with schedule of {} - {}, not correct amount of hours, I count {}".format(resource.display_name, ActiveSchedule, len(schedulehours)))
-                        MakeLog(" - Error with schedule of {} - {}, not correct amount of hours, i count {}".format(resource.display_name, ActiveSchedule, len(schedulehours)))
-                        ActiveSchedule = ""
+                    schedulehours = ActiveSchedule.split(",")
                 except Exception:
                     ErrorsFound = True
                     ActiveSchedule = ""
@@ -620,13 +644,14 @@ def autoscale_region(region):
 
             if ActiveSchedule != "":
                 DisplaySchedule = ""
-                c = 0
-                for h in schedulehours:
+                for c, h in enumerate(schedulehours):
                     if c == CurrentHour:
-                        DisplaySchedule = DisplaySchedule + "[" + h + "],"
+                        DisplaySchedule = DisplaySchedule + "[" + h + "]"
                     else:
-                        DisplaySchedule = DisplaySchedule + h + ","
-                    c = c + 1
+                        DisplaySchedule = DisplaySchedule + h
+
+                    if c < ( len(schedulehours) - 1 ):
+                        DisplaySchedule += ","
 
                 MakeLog(" - Active schedule for {}: {}".format(resource.display_name, DisplaySchedule))
 
