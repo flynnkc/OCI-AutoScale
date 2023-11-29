@@ -628,7 +628,7 @@ def autoscale_region(region):
             ActiveSchedule = validate_schedule(resource, ActiveSchedule)
             if ActiveSchedule != "":
                 try:
-                    schedulehours = ActiveSchedule.split(",")
+                    schedulehours = ActiveSchedule.split("#")[0].split(",")
                 except Exception:
                     ErrorsFound = True
                     ActiveSchedule = ""
